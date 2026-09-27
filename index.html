@@ -1,0 +1,2073 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>WakeGuard – Smart Dynamic Anti-Snooze Alarm</title>
+  <meta name="description" content="Offline-first cognitive anti-snooze smart alarm with anti-mute volume protection, custom audio uploads, and mental wake challenges.">
+  <meta name="theme-color" content="#090d16">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- jsQR for offline camera QR Code scanner fallback -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+  <style>
+    @keyframes alarm-strobe {
+      0%, 100% { background-color: #090d16; }
+      50% { background-color: #450a0a; }
+    }
+    .animate-alarm-active {
+      animation: alarm-strobe 1.2s infinite ease-in-out;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.98); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.98); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    .challenge-pulse-card {
+      animation: pulse-ring 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+    }
+    @keyframes breathing-circle {
+      0%, 100% { transform: scale(0.85); opacity: 0.6; }
+      50% { transform: scale(1.35); opacity: 1; filter: drop-shadow(0 0 20px rgba(16, 185, 129, 0.7)); }
+    }
+    .animate-box-breathe {
+      animation: breathing-circle 8s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen flex flex-col justify-between selection:bg-emerald-500 selection:text-white transition-colors duration-300">
+
+  <header class="w-full border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40 px-4 py-3 sm:px-6">
+    <div class="max-w-4xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-slate-950">
+          <i data-lucide="shield-alert" class="w-5 h-5 stroke-[2.5]"></i>
+        </div>
+        <div>
+          <span class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">WakeGuard</span>
+          <span class="hidden sm:inline-block ml-2 text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/60 font-mono">ANTI-SNOOZE</span>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-2 sm:space-x-3">
+        <!-- Status indicator badge -->
+        <div id="offlineStatusBadge" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="offlineStatusText">🟢 Offline Ready</span>
+        </div>
+
+        <!-- Tech explanation / Android guide modal button -->
+        <button id="guideBtn" title="Background alarm details & mobile conversion" class="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700/80 transition-all border border-slate-700/50">
+          <i data-lucide="info" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Profile & settings modal button -->
+        <button id="settingsBtn" title="Preferences and Profile" class="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700/80 transition-all border border-slate-700/50">
+          <i data-lucide="settings" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-4xl w-full mx-auto px-4 py-6 sm:px-6 flex-grow space-y-6">
+
+    <!-- Hero / Time & Countdown Display -->
+    <section class="bg-gradient-to-b from-slate-900/90 to-slate-900/50 border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden backdrop-blur-sm text-center">
+      <div class="absolute -right-20 -top-20 w-56 h-56 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+      <div class="absolute -left-20 -bottom-20 w-56 h-56 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+      <p id="greetingText" class="text-xs sm:text-sm font-semibold text-emerald-400 tracking-wider uppercase mb-1">Good Morning, Explorer 🌅</p>
+      
+      <!-- Big Digital Clock -->
+      <h1 id="liveClock" class="text-5xl sm:text-7xl md:text-8xl font-black tracking-tight text-slate-100 font-mono my-2 select-none">
+        00:00:00
+      </h1>
+      <p id="liveDate" class="text-slate-400 text-sm sm:text-base font-medium">Checking calendar...</p>
+
+      <!-- Key Stats Row -->
+      <div class="mt-6 pt-5 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+        <div class="flex items-center space-x-3.5 bg-slate-800/40 p-4 rounded-2xl border border-slate-800/70">
+          <div class="w-11 h-11 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+            <i data-lucide="bell-ring" class="w-6 h-6"></i>
+          </div>
+          <div class="overflow-hidden">
+            <div class="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Next Active Alarm</div>
+            <div id="nextAlarmDisplay" class="text-slate-200 font-semibold text-sm sm:text-base truncate">No alarms scheduled</div>
+            <div id="nextAlarmCountdown" class="text-xs text-emerald-400 font-mono mt-0.5">--</div>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-3.5 bg-slate-800/40 p-4 rounded-2xl border border-slate-800/70">
+          <div class="w-11 h-11 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+            <i data-lucide="flame" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Morning Wake Streak</div>
+            <div id="streakDisplay" class="text-slate-200 font-semibold text-sm sm:text-base">0 Days Continuous</div>
+            <div id="streakSubtext" class="text-xs text-amber-400/80">Keep solving to level up</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Wake Lock Notice & Anti-Mute Indicator -->
+      <div class="mt-4 flex flex-col sm:flex-row items-center justify-between bg-slate-950/60 border border-slate-800 rounded-2xl px-4 py-2.5 text-xs text-slate-300 gap-2">
+        <div class="flex items-center space-x-2 text-left">
+          <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+          <span id="wakeLockStatusText">Anti-Mute & Screen Wake Lock safeguard active.</span>
+        </div>
+        <button id="toggleWakeLockBtn" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg border border-slate-700 transition shrink-0">
+          Screen Stay Awake
+        </button>
+      </div>
+    </section>
+
+    <section class="space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold text-slate-200 tracking-tight">Scheduled Alarms</h2>
+          <p class="text-xs text-slate-400">Locally scheduled. Zero internet dependency.</p>
+        </div>
+        <button id="openAddAlarmBtn" class="flex items-center space-x-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">
+          <i data-lucide="plus" class="w-4 h-4 stroke-[3]"></i>
+          <span>Add Alarm</span>
+        </button>
+      </div>
+
+      <!-- Alarms List Container -->
+      <div id="alarmsList" class="space-y-3">
+        <!-- Injected via JavaScript -->
+      </div>
+    </section>
+
+    <section class="bg-slate-900/50 border border-slate-800/80 rounded-3xl p-5 sm:p-6 backdrop-blur-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-200 flex items-center space-x-2">
+            <i data-lucide="disc" class="w-4 h-4 text-emerald-400"></i>
+            <span>Upload Your Own Song (MP3 / WAV / OGG)</span>
+          </h3>
+          <p class="text-xs text-slate-400">Saved offline inside your browser's IndexedDB. Works 100% without Wi-Fi or data.</p>
+        </div>
+        <div>
+          <label for="customAudioUploadInput" class="cursor-pointer text-xs bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold px-3.5 py-2 rounded-xl border border-emerald-500 flex items-center space-x-2 transition shadow-md">
+            <i data-lucide="upload" class="w-3.5 h-3.5 stroke-[2.5]"></i>
+            <span>Upload Song File</span>
+          </label>
+          <input type="file" id="customAudioUploadInput" accept="audio/*" class="hidden">
+        </div>
+      </div>
+
+      <!-- Current uploaded custom song state -->
+      <div id="customSongStatusBox" class="p-4 rounded-2xl border border-slate-800 bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex items-center space-x-3 overflow-hidden">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+            <i data-lucide="music-2" class="w-4 h-4"></i>
+          </div>
+          <div class="overflow-hidden">
+            <div class="text-[11px] text-slate-500 uppercase font-semibold">Active Custom Ringtone</div>
+            <div id="customSongNameText" class="text-xs font-semibold text-slate-300 truncate">No custom audio uploaded yet</div>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2 shrink-0">
+          <button id="previewCustomSongBtn" disabled class="px-3 py-1.5 rounded-lg bg-slate-800 disabled:opacity-40 disabled:pointer-events-none text-slate-200 hover:bg-slate-700 text-xs font-semibold flex items-center space-x-1.5 border border-slate-700 transition">
+            <i data-lucide="play" class="w-3.5 h-3.5"></i>
+            <span id="previewCustomSongText">Test Song</span>
+          </button>
+          <button id="deleteCustomSongBtn" disabled class="p-1.5 rounded-lg text-slate-500 disabled:opacity-40 disabled:pointer-events-none hover:text-rose-400 hover:bg-slate-800 transition">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="w-full border-t border-slate-800/80 bg-slate-950 py-4 text-center text-xs text-slate-500">
+    <div class="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <p>WakeGuard • Anti-Mute & Cognitive Alertness Alarm System.</p>
+      <div class="flex items-center space-x-3">
+        <button id="quickTestAlarmBtn" class="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition text-xs font-semibold">
+          ⚡ Ring Test Alarm
+        </button>
+        <span class="text-slate-700">|</span>
+        <button id="generateQrBtn" class="text-slate-400 hover:text-slate-200 underline">Show Test QR Code</button>
+      </div>
+    </div>
+  </footer>
+
+  <div id="alarmModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-3xl p-6 shadow-2xl relative space-y-5 max-h-[90vh] overflow-y-auto no-scrollbar">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+        <h3 id="modalTitle" class="text-lg font-bold text-slate-100">Set Alarm</h3>
+        <button id="closeModalBtn" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="alarmForm" class="space-y-4">
+        <input type="hidden" id="alarmId">
+
+        <!-- Time Picker -->
+        <div>
+          <label class="block text-xs uppercase text-slate-400 font-bold mb-2">Alarm Time</label>
+          <div class="flex items-center justify-center space-x-3 bg-slate-950/80 p-4 rounded-2xl border border-slate-800">
+            <input type="number" id="alarmHour" min="1" max="12" value="06" class="w-20 text-center text-4xl font-mono font-bold bg-slate-800/80 text-slate-100 rounded-xl py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <span class="text-3xl font-mono text-slate-500">:</span>
+            <input type="number" id="alarmMinute" min="0" max="59" value="30" class="w-20 text-center text-4xl font-mono font-bold bg-slate-800/80 text-slate-100 rounded-xl py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <button type="button" id="toggleAmPmBtn" class="px-3.5 py-3 bg-emerald-500/20 text-emerald-400 font-extrabold text-sm rounded-xl border border-emerald-500/30">AM</button>
+          </div>
+        </div>
+
+        <!-- Alarm Label -->
+        <div>
+          <label class="block text-xs uppercase text-slate-400 font-bold mb-1">Alarm Label</label>
+          <input type="text" id="alarmLabel" placeholder="e.g. College Morning, Workout Routine" class="w-full bg-slate-800/80 border border-slate-700/80 rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        </div>
+
+        <!-- Repeat Days -->
+        <div>
+          <label class="block text-xs uppercase text-slate-400 font-bold mb-2">Repeat Days</label>
+          <div class="grid grid-cols-7 gap-1.5" id="daySelectors">
+            <button type="button" data-day="1" class="day-btn py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-400 border border-slate-700">M</button>
+            <button type="button" data-day="2" class="day-btn py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-400 border border-slate-700">T</button>
+            <button type="button" data-day="3" class="day-btn py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-400 border border-slate-700">W</button>
+            <button type="button" data-day="4" class="day-btn py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-400 border border-slate-700">T</button>
+            <button type="button" data-day="5" class="day-btn py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-400 border border-slate-700">F</button>
+            <button type="button" data-day="6" class="day-btn py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-400 border border-slate-700">S</button>
+            <button type="button" data-day="0" class="day-btn py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-400 border border-slate-700">S</button>
+          </div>
+        </div>
+
+        <!-- Challenge Configuration -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs uppercase text-slate-400 font-bold mb-1">Wake Challenge</label>
+            <select id="alarmChallengeType" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:ring-2 focus:ring-emerald-500">
+              <option value="random">🎲 Dynamic Daily Rotation</option>
+              <option value="math">🧮 Math Arithmetic</option>
+              <option value="typing">⌨️ Morning Mindful Typing</option>
+              <option value="memory">🧠 Symbol Memory Recall</option>
+              <option value="sequence">🔢 Sequence Solver</option>
+              <option value="singing">🎤 Sing a Song</option>
+              <option value="picture">🖼️ Identify the Picture</option>
+              <option value="qr">📷 QR Code Scan</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs uppercase text-slate-400 font-bold mb-1">Difficulty</label>
+            <select id="alarmDifficulty" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:ring-2 focus:ring-emerald-500">
+              <option value="easy">Easy (Gentle wake)</option>
+              <option value="medium" selected>Medium (Standard focus)</option>
+              <option value="hard">Hard (Maximum alert)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Ringtone Selection (Custom uploaded song vs synthesizers) -->
+        <div>
+          <label class="block text-xs uppercase text-slate-400 font-bold mb-1">Alarm Ringtone Sound</label>
+          <div class="flex space-x-2">
+            <select id="alarmToneType" class="flex-grow bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:ring-2 focus:ring-emerald-500">
+              <option value="custom" id="modalCustomOption" disabled>🎵 My Custom Uploaded Song (None)</option>
+              <option value="triple_beep">⚡ Triple Staccato Pulse (Built-in)</option>
+              <option value="siren" selected>🚨 Dual-Oscillator Siren (Built-in)</option>
+              <option value="harmonic">🔔 Harmonic Wake Tri-Tone (Built-in)</option>
+              <option value="radar">📡 High-Alert Radar Chirp (Built-in)</option>
+            </select>
+            <button type="button" id="previewModalToneBtn" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs flex items-center space-x-1.5 border border-slate-700">
+              <i data-lucide="play" class="w-3.5 h-3.5"></i>
+              <span>Test</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Strict Anti-Mute Volume Slider with minimum clamp floor -->
+        <div class="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-1.5">
+          <div class="flex justify-between text-xs text-slate-300">
+            <span class="flex items-center space-x-1 font-semibold text-rose-400">
+              <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+              <span>Alarm Volume (Min. 65% Clamped)</span>
+            </span>
+            <span id="volumePercentage" class="font-mono font-bold text-emerald-400">90%</span>
+          </div>
+          <input type="range" id="alarmVolume" min="65" max="100" value="90" class="w-full accent-emerald-500 cursor-pointer">
+          <p class="text-[10px] text-slate-500">Volume cannot be dropped below 65% to guarantee audibility.</p>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="flex justify-end space-x-3 pt-3 border-t border-slate-800">
+          <button type="button" id="cancelAlarmBtn" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-sm font-medium hover:bg-slate-700">Cancel</button>
+          <button type="submit" class="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm shadow-md transition">Save Alarm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="wakeUpTakeoverView" class="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between p-4 sm:p-6 hidden">
+    <!-- Top header with time -->
+    <div class="flex justify-between items-center max-w-xl mx-auto w-full">
+      <div class="flex items-center space-x-2 text-rose-500">
+        <span class="w-3 h-3 rounded-full bg-rose-500 animate-ping"></span>
+        <span class="font-extrabold tracking-widest text-xs uppercase">Wake-Up Mode Active</span>
+      </div>
+      <div id="wakeUpCurrentTime" class="font-mono text-2xl font-bold text-slate-200">06:30 AM</div>
+    </div>
+
+    <!-- Center Challenge Card -->
+    <div class="max-w-md w-full mx-auto my-auto bg-slate-900/95 border-2 border-rose-500/50 rounded-3xl p-6 sm:p-8 shadow-2xl challenge-pulse-card text-center space-y-5">
+      <div class="w-16 h-16 mx-auto rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center">
+        <i id="challengeIcon" data-lucide="brain" class="w-8 h-8"></i>
+      </div>
+
+      <div>
+        <h2 id="challengeTitle" class="text-2xl font-black text-slate-100 tracking-tight">Solve to Stop Alarm</h2>
+        <p id="challengeDescription" class="text-xs text-slate-400 mt-1">Complete this cognitive task to prove mental alertness.</p>
+      </div>
+
+      <!-- Anti-mute warning banner on active screen -->
+      <div class="flex items-center justify-center space-x-2 py-1.5 px-3 rounded-xl bg-rose-950/60 border border-rose-800/60 text-[11px] text-rose-300 font-medium">
+        <i data-lucide="volume-2" class="w-3.5 h-3.5 shrink-0"></i>
+        <span>Anti-Mute Guard: Volume reduction & muting is locked.</span>
+      </div>
+
+      <!-- Challenge Interactive Container -->
+      <div id="challengeWorkArea" class="space-y-4">
+        <!-- Dynamically rendered based on active challenge -->
+      </div>
+
+      <!-- Challenge feedback message -->
+      <div id="challengeFeedback" class="text-xs font-bold min-h-[1.25rem] text-rose-400"></div>
+
+      <!-- Submit button -->
+      <button id="submitChallengeBtn" class="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-extrabold text-base rounded-2xl shadow-lg active:scale-95 transition-all">
+        SUBMIT SOLUTION
+      </button>
+    </div>
+
+    <!-- Emergency stop mechanism (10s hold) -->
+    <div class="max-w-md w-full mx-auto text-center space-y-2">
+      <p class="text-[11px] text-slate-500">Ordinary snooze is disabled. Hold emergency button for 10s if in urgent crisis.</p>
+      <button id="emergencyStopBtn" class="text-xs text-slate-500 hover:text-slate-300 py-1.5 px-3 border border-slate-800 rounded-lg transition select-none">
+        Emergency Stop (Hold 10s)
+      </button>
+      <div id="emergencyProgressWrap" class="w-36 h-1.5 bg-slate-800 mx-auto rounded-full overflow-hidden hidden">
+        <div id="emergencyProgressBar" class="w-0 h-full bg-rose-500 transition-all duration-100"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="morningPortalView" class="fixed inset-0 z-50 bg-slate-950 overflow-y-auto hidden p-4 sm:p-6 flex flex-col justify-between">
+    <div class="max-w-2xl w-full mx-auto space-y-6 my-auto py-8">
+      
+      <!-- Greeting Header -->
+      <div class="text-center space-y-2">
+        <span class="inline-block px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full text-xs font-bold tracking-wide uppercase">
+          🎉 Alarm Neutralized • Mind Activated
+        </span>
+        <h2 id="morningGreeting" class="text-3xl sm:text-5xl font-black text-slate-100 tracking-tight">
+          Good Morning, Santhosh! 🌅
+        </h2>
+        <p id="morningDateBanner" class="text-slate-400 text-sm">Sunday • You are in control of today.</p>
+      </div>
+
+      <!-- Motivational verse card -->
+      <div class="bg-slate-900 border border-slate-800/80 rounded-3xl p-6 sm:p-7 relative overflow-hidden text-center space-y-3 shadow-xl">
+        <i data-lucide="quote" class="w-7 h-7 text-emerald-500/30 mx-auto"></i>
+        <p id="morningVerseText" class="text-lg sm:text-xl font-medium text-slate-200 italic leading-relaxed">
+          "One conscious breath and one deliberate step in the early morning alters the rhythm of your entire day."
+        </p>
+        <span id="morningVerseAuthor" class="text-xs font-bold text-emerald-400 tracking-wider uppercase block">
+          — Morning Focus Protocol
+        </span>
+      </div>
+
+      <!-- Box Breathing Guide -->
+      <div class="bg-slate-900 border border-slate-800/80 rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div class="text-center sm:text-left space-y-1">
+          <h4 class="font-bold text-slate-200 text-base">Box Breathing Alertness Boost</h4>
+          <p class="text-xs text-slate-400 max-w-sm">Deep, measured breathing rapidly oxygenates your cortex and stabilizes morning heart rate variability.</p>
+          <div id="breathingPacerText" class="text-emerald-400 text-sm font-semibold pt-2">Inhale slowly... (4s)</div>
+        </div>
+        <div class="w-20 h-20 rounded-2xl border-2 border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center animate-box-breathe shrink-0 shadow-lg shadow-emerald-500/10">
+          <i data-lucide="wind" class="w-8 h-8 text-emerald-400"></i>
+        </div>
+      </div>
+
+      <!-- Hydration & Audio routine cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- Morning Audio Player -->
+        <div class="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between">
+          <div class="flex items-center space-x-3 mb-3">
+            <div class="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+              <i data-lucide="headphones" class="w-5 h-5"></i>
+            </div>
+            <div class="overflow-hidden">
+              <div class="text-xs text-slate-400">Morning Audio</div>
+              <div id="morningAudioTitle" class="text-xs font-semibold text-slate-200 truncate">Synthesized Chimes / Custom</div>
+            </div>
+          </div>
+          <button id="toggleMorningAudioBtn" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center justify-center space-x-2 border border-slate-700 transition">
+            <i data-lucide="play" class="w-3.5 h-3.5"></i>
+            <span id="morningPlayText">Play Relaxing Tone</span>
+          </button>
+        </div>
+
+        <!-- Water hydration tracker -->
+        <div class="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between">
+          <div class="flex items-center space-x-3 mb-2">
+            <div class="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+              <i data-lucide="droplet" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="text-xs text-slate-400">Biological Habit</div>
+              <div class="text-xs font-bold text-slate-200">Rehydration Protocol</div>
+            </div>
+          </div>
+          <label class="flex items-center space-x-2.5 text-xs text-slate-300 cursor-pointer pt-1">
+            <input type="checkbox" id="waterCheck" class="w-4 h-4 accent-emerald-500 rounded">
+            <span>I drank my 500ml glass of water</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Dismiss Button -->
+      <button id="finishMorningRoutineBtn" class="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-base rounded-2xl shadow-xl shadow-emerald-500/20 active:scale-95 transition">
+        I Am Ready • Start My Day
+      </button>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-5">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+        <h3 class="text-lg font-bold text-slate-100">User Settings</h3>
+        <button id="closeSettingsBtn" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs uppercase text-slate-400 font-bold mb-1">Your Name</label>
+          <input type="text" id="settingUserName" placeholder="e.g. Santhosh" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+        </div>
+
+        <div class="flex items-center justify-between p-3.5 bg-slate-800/40 rounded-xl border border-slate-800">
+          <div>
+            <div class="text-sm font-semibold text-slate-200">24-Hour Time Format</div>
+            <div class="text-xs text-slate-400">Display 18:30 instead of 06:30 PM</div>
+          </div>
+          <input type="checkbox" id="setting24h" class="w-4 h-4 accent-emerald-500">
+        </div>
+
+        <div class="flex items-center justify-between p-3.5 bg-slate-800/40 rounded-xl border border-slate-800">
+          <div>
+            <div class="text-sm font-semibold text-slate-200">Auto Keep Screen Awake</div>
+            <div class="text-xs text-slate-400">Engage Screen Wake Lock overnight</div>
+          </div>
+          <input type="checkbox" id="settingWakeLock" class="w-4 h-4 accent-emerald-500">
+        </div>
+
+        <div class="pt-3 border-t border-slate-800 flex justify-between items-center">
+          <button id="resetAllDataBtn" class="text-xs text-rose-400 hover:underline">Clear Stored Alarms</button>
+          <button id="saveSettingsBtn" class="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl shadow transition">Save Preferences</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="guideModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-3xl p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto no-scrollbar">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+        <h3 class="text-lg font-bold text-slate-100 flex items-center space-x-2">
+          <i data-lucide="cpu" class="w-5 h-5 text-emerald-400"></i>
+          <span>Architecture & OS Constraints</span>
+        </h3>
+        <button id="closeGuideBtn" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3.5 text-xs text-slate-300 leading-relaxed">
+        <div class="p-3.5 bg-emerald-950/30 border border-emerald-800/40 rounded-xl">
+          <p class="font-bold text-emerald-400 mb-1">100% Offline & Free Architecture</p>
+          <p>WakeGuard requires ₹0 and no cloud server. Alarms and streaks reside in <code>LocalStorage</code>. Uploaded MP3/WAV song files reside in browser <code>IndexedDB</code>. Sounds play via native <code>Web Audio API</code> oscillators or local blob audio tags.</p>
+        </div>
+
+        <div class="p-3.5 bg-rose-950/30 border border-rose-800/40 rounded-xl">
+          <p class="font-bold text-rose-400 mb-1">Anti-Mute & Anti-Cheat Safeguards</p>
+          <p>The alarm volume is enforced with a strict hardware clamp (≥65%). While the alarm is ringing, keyboard volume-down/mute shortcuts are blocked on laptops/desktops, and a JavaScript watchdog continuously ramps the audio gain back up if lowered.</p>
+        </div>
+
+        <div class="p-3.5 bg-amber-950/30 border border-amber-800/40 rounded-xl">
+          <p class="font-bold text-amber-400 mb-1">Browser Mobile Limitations (Android & iOS)</p>
+          <p>Mobile OSs intentionally throttle background JS when tabs are closed. For guaranteed waking: keep WakeGuard open overnight in the active tab with <strong>Screen Stay Awake</strong> enabled.</p>
+        </div>
+      </div>
+
+      <div class="pt-2 text-right">
+        <button id="dismissGuideBtn" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl">Understood</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="qrModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-3xl p-6 shadow-2xl text-center space-y-4">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+        <h3 class="text-base font-bold text-slate-100">Test QR Code</h3>
+        <button id="closeQrBtn" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <p class="text-xs text-slate-400">Scan this sample code or any barcode in your bathroom/kitchen to test the physical scanner.</p>
+      <div class="p-4 bg-white rounded-2xl inline-block shadow-inner">
+        <svg id="qrSvgPreview" class="w-48 h-48 mx-auto" viewBox="0 0 100 100">
+          <rect width="100" height="100" fill="white" />
+          <rect x="10" y="10" width="25" height="25" fill="black" />
+          <rect x="15" y="15" width="15" height="15" fill="white" />
+          <rect x="18" y="18" width="9" height="9" fill="black" />
+          
+          <rect x="65" y="10" width="25" height="25" fill="black" />
+          <rect x="70" y="15" width="15" height="15" fill="white" />
+          <rect x="73" y="18" width="9" height="9" fill="black" />
+
+          <rect x="10" y="65" width="25" height="25" fill="black" />
+          <rect x="15" y="70" width="15" height="15" fill="white" />
+          <rect x="18" y="73" width="9" height="9" fill="black" />
+
+          <rect x="42" y="15" width="16" height="6" fill="black" />
+          <rect x="45" y="30" width="10" height="10" fill="black" />
+          <rect x="65" y="45" width="8" height="20" fill="black" />
+          <rect x="25" y="42" width="12" height="14" fill="black" />
+          <rect x="45" y="60" width="22" height="8" fill="black" />
+          <rect x="75" y="75" width="15" height="15" fill="black" />
+          <rect x="45" y="75" width="10" height="15" fill="black" />
+        </svg>
+      </div>
+      <div class="text-[11px] font-mono text-emerald-400 bg-slate-950 p-2 rounded-xl border border-slate-800 select-all">
+        WAKEGUARD_TOKEN_WAKE
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const KEY_ALARMS = 'wakeguard_alarms_v2';
+    const KEY_SETTINGS = 'wakeguard_settings_v2';
+    const KEY_STREAK = 'wakeguard_streak_v2';
+    const DB_NAME = 'WakeGuard_Storage_DB';
+    const DB_VERSION = 1;
+    const STORE_CUSTOM_AUDIO = 'userCustomAudio';
+
+    let db = null;
+    let audioCtx = null;
+    let alarmOscillators = [];
+    let customAudioElement = null;
+    let customAudioBlobCache = null;
+    let customAudioNameCache = null;
+    let wakeLockSentinel = null;
+    let activeAlarm = null;
+    let activeChallengeData = null;
+    let microphoneStream = null;
+    let singingAudioSource = null;
+    let singingCheckInterval = null;
+    let emergencyTimer = null;
+    let emergencyStartTime = 0;
+    let cameraStream = null;
+    let videoScannerInterval = null;
+    let morningMelodyInterval = null;
+    let antiMuteWatchdog = null;
+
+    const MINIMUM_SAFE_VOLUME = 0.65; // Anti-mute enforced floor (65%)
+
+    const defaultSettings = {
+      userName: 'Santhosh',
+      use24Hour: false,
+      keepAwake: true
+    };
+
+    const motivationalVerses = [
+      { text: "One conscious breath and one deliberate step in the early morning alters the rhythm of your entire day.", author: "Daily Focus Protocol" },
+      { text: "The morning does not ask for perfection; it only asks for your presence and your purpose.", author: "Mindful Dawn" },
+      { text: "You have conquered sleep. Now direct that alertness toward what truly matters to you.", author: "Action Primer" },
+      { text: "Dawn begins with a single ray. Every great endeavor starts with getting out of bed.", author: "Inner Resolve" },
+      { text: "Your future is crafted in the quiet early hours while the rest of the world is still resting.", author: "Discipline Journal" }
+    ];
+
+    function registerPWA() {
+      const manifestObj = {
+        name: "WakeGuard Anti-Snooze Alarm",
+        short_name: "WakeGuard",
+        start_url: "./index.html",
+        display: "standalone",
+        background_color: "#090d16",
+        theme_color: "#090d16",
+        icons: [{
+          src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%2310b981'/%3E%3Cpath d='M30 50 L45 65 L70 35' stroke='%23090d16' stroke-width='10' fill='none' stroke-linecap='round'/%3E%3C/svg%3E",
+          sizes: "192x192 512x512",
+          type: "image/svg+xml"
+        }]
+      };
+
+      const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: 'application/manifest+json' });
+      const manifestUrl = URL.createObjectURL(manifestBlob);
+      const manifestLink = document.createElement('link');
+      manifestLink.rel = 'manifest';
+      manifestLink.href = manifestUrl;
+      document.head.appendChild(manifestLink);
+
+      if ('serviceWorker' in navigator) {
+        const swScript = `
+          const CACHE_NAME = 'wakeguard-sw-v2';
+          self.addEventListener('install', (e) => { self.skipWaiting(); });
+          self.addEventListener('activate', (e) => { e.waitUntil(clients.claim()); });
+          self.addEventListener('fetch', (e) => {
+            e.respondWith(caches.match(e.request).then(res => res || fetch(e.request).catch(() => caches.match(e.request))));
+          });
+        `;
+        const swBlob = new Blob([swScript], { type: 'application/javascript' });
+        const swUrl = URL.createObjectURL(swBlob);
+        navigator.serviceWorker.register(swUrl).catch(err => console.log('SW Note:', err));
+      }
+    }
+
+    function initDatabase() {
+      return new Promise((resolve) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const d = e.target.result;
+          if (!d.objectStoreNames.contains(STORE_CUSTOM_AUDIO)) {
+            d.createObjectStore(STORE_CUSTOM_AUDIO, { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = (e) => {
+          db = e.target.result;
+          loadCustomSong();
+          resolve(db);
+        };
+        req.onerror = () => resolve(null);
+      });
+    }
+
+    function saveCustomSongFile(file) {
+      if (!db) return;
+      const tx = db.transaction(STORE_CUSTOM_AUDIO, 'readwrite');
+      const store = tx.objectStore(STORE_CUSTOM_AUDIO);
+      const songData = {
+        id: 'primary_song',
+        name: file.name,
+        type: file.type,
+        blob: file,
+        uploadedAt: Date.now()
+      };
+      store.put(songData);
+      tx.oncomplete = () => {
+        loadCustomSong();
+      };
+    }
+
+    function loadCustomSong() {
+      if (!db) return;
+      const tx = db.transaction(STORE_CUSTOM_AUDIO, 'readonly');
+      const store = tx.objectStore(STORE_CUSTOM_AUDIO);
+      const req = store.get('primary_song');
+
+      req.onsuccess = () => {
+        const record = req.result;
+        const nameEl = document.getElementById('customSongNameText');
+        const previewBtn = document.getElementById('previewCustomSongBtn');
+        const deleteBtn = document.getElementById('deleteCustomSongBtn');
+        const modalOption = document.getElementById('modalCustomOption');
+
+        if (record && record.blob) {
+          customAudioBlobCache = record.blob;
+          customAudioNameCache = record.name;
+          nameEl.textContent = record.name;
+          previewBtn.disabled = false;
+          deleteBtn.disabled = false;
+          modalOption.disabled = false;
+          modalOption.textContent = `🎵 ${record.name} (Custom Upload)`;
+        } else {
+          customAudioBlobCache = null;
+          customAudioNameCache = null;
+          nameEl.textContent = 'No custom audio uploaded yet';
+          previewBtn.disabled = true;
+          deleteBtn.disabled = true;
+          modalOption.disabled = true;
+          modalOption.textContent = '🎵 My Custom Uploaded Song (None)';
+          if (document.getElementById('alarmToneType').value === 'custom') {
+            document.getElementById('alarmToneType').value = 'siren';
+          }
+        }
+      };
+    }
+
+    function deleteCustomSongFile() {
+      if (!db) return;
+      stopAudioPlayback();
+      const tx = db.transaction(STORE_CUSTOM_AUDIO, 'readwrite');
+      tx.objectStore(STORE_CUSTOM_AUDIO).delete('primary_song');
+      tx.oncomplete = () => loadCustomSong();
+    }
+
+    function getAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function playProceduralAlarm(tone = 'siren', volumePercent = 90) {
+      stopProceduralAlarm();
+      const ctx = getAudioContext();
+      const master = ctx.createGain();
+      const vol = Math.max(MINIMUM_SAFE_VOLUME, (volumePercent / 100));
+      master.gain.setValueAtTime(vol, ctx.currentTime);
+      master.connect(ctx.destination);
+
+      if (tone === 'triple_beep') {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(950, ctx.currentTime);
+
+        const scheduleBeeps = (t) => {
+          for (let i = 0; i < 3; i++) {
+            g.gain.setValueAtTime(0.7, t + i * 0.16);
+            g.gain.setValueAtTime(0.001, t + i * 0.16 + 0.08);
+          }
+        };
+
+        scheduleBeeps(ctx.currentTime);
+        const intervalId = setInterval(() => {
+          if (alarmOscillators.length > 0) scheduleBeeps(ctx.currentTime);
+        }, 900);
+
+        osc.connect(g);
+        g.connect(master);
+        osc.start();
+        alarmOscillators.push({ osc, intervalId, masterGain: master });
+
+      } else if (tone === 'harmonic') {
+        const intervalId = setInterval(() => {
+          const chord = [523.25, 659.25, 783.99];
+          chord.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const g = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.1);
+            g.gain.setValueAtTime(0.5, ctx.currentTime + idx * 0.1);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.1 + 0.6);
+            osc.connect(g);
+            g.connect(master);
+            osc.start(ctx.currentTime + idx * 0.1);
+            osc.stop(ctx.currentTime + idx * 0.1 + 0.7);
+          });
+        }, 1800);
+        alarmOscillators.push({ intervalId, masterGain: master });
+
+      } else if (tone === 'radar') {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1400, ctx.currentTime);
+
+        const radarInterval = setInterval(() => {
+          g.gain.setValueAtTime(0.8, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
+        }, 550);
+
+        osc.connect(g);
+        g.connect(master);
+        osc.start();
+        alarmOscillators.push({ osc, intervalId: radarInterval, masterGain: master });
+
+      } else { // siren
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(650, ctx.currentTime);
+
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        lfo.frequency.setValueAtTime(3.2, ctx.currentTime);
+        lfoGain.gain.setValueAtTime(350, ctx.currentTime);
+
+        lfo.connect(osc.frequency);
+        osc.connect(master);
+        osc.start();
+        lfo.start();
+        alarmOscillators.push({ osc, lfo, masterGain: master });
+      }
+
+      startAntiMuteWatchdog(master, vol);
+    }
+
+    function stopProceduralAlarm() {
+      alarmOscillators.forEach(item => {
+        if (item.osc) {
+          try { item.osc.stop(); item.osc.disconnect(); } catch (e) {}
+        }
+        if (item.lfo) {
+          try { item.lfo.stop(); item.lfo.disconnect(); } catch (e) {}
+        }
+        if (item.intervalId) {
+          clearInterval(item.intervalId);
+        }
+      });
+      alarmOscillators = [];
+      stopAntiMuteWatchdog();
+    }
+
+    function startAntiMuteWatchdog(webAudioGainNode = null, targetVolume = 0.9) {
+      stopAntiMuteWatchdog();
+      antiMuteWatchdog = setInterval(() => {
+        const clamped = Math.max(MINIMUM_SAFE_VOLUME, targetVolume);
+        if (webAudioGainNode && audioCtx && audioCtx.state === 'running') {
+          if (webAudioGainNode.gain.value < clamped) {
+            webAudioGainNode.gain.setValueAtTime(clamped, audioCtx.currentTime);
+          }
+        }
+        if (customAudioElement) {
+          if (customAudioElement.muted) customAudioElement.muted = false;
+          if (customAudioElement.volume < clamped) customAudioElement.volume = clamped;
+        }
+      }, 250);
+    }
+
+    function stopAntiMuteWatchdog() {
+      if (antiMuteWatchdog) {
+        clearInterval(antiMuteWatchdog);
+        antiMuteWatchdog = null;
+      }
+    }
+
+    function playAlarmSound(toneType, volumePercent = 90) {
+      stopAudioPlayback();
+      const targetVol = Math.max(MINIMUM_SAFE_VOLUME, volumePercent / 100);
+
+      if (toneType === 'custom' && customAudioBlobCache) {
+        try {
+          const url = URL.createObjectURL(customAudioBlobCache);
+          customAudioElement = new Audio(url);
+          customAudioElement.loop = true;
+          customAudioElement.volume = targetVol;
+          customAudioElement.play().catch(err => {
+            console.warn('Autoplay custom track blocked, falling back to synthesizer:', err);
+            playProceduralAlarm('siren', volumePercent);
+          });
+          startAntiMuteWatchdog(null, targetVol);
+        } catch (e) {
+          playProceduralAlarm('siren', volumePercent);
+        }
+      } else {
+        playProceduralAlarm(toneType, volumePercent);
+      }
+    }
+
+    function stopAudioPlayback() {
+      stopProceduralAlarm();
+      if (customAudioElement) {
+        try {
+          customAudioElement.pause();
+          customAudioElement.currentTime = 0;
+        } catch (e) {}
+        customAudioElement = null;
+      }
+    }
+
+    /* Intercept desktop keyboard mute and volume down buttons during active alarm */
+    window.addEventListener('keydown', (e) => {
+      const isAlarmRinging = !document.getElementById('wakeUpTakeoverView').classList.contains('hidden');
+      if (isAlarmRinging) {
+        const blockedKeys = ['AudioVolumeMute', 'AudioVolumeDown', 'VolumeMute', 'VolumeDown'];
+        if (blockedKeys.includes(e.key) || blockedKeys.includes(e.code)) {
+          e.preventDefault();
+          console.warn("WakeGuard Anti-Cheat: Sound reduction is disabled during an active challenge.");
+        }
+      }
+    });
+
+    function playMorningMelody() {
+      stopAudioPlayback();
+      const ctx = getAudioContext();
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0.25, ctx.currentTime);
+      master.connect(ctx.destination);
+
+      const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99];
+      let idx = 0;
+
+      morningMelodyInterval = setInterval(() => {
+        if (!document.getElementById('morningPortalView').classList.contains('hidden')) {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(notes[idx % notes.length], ctx.currentTime);
+          g.gain.setValueAtTime(0.18, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.5);
+          osc.connect(g);
+          g.connect(master);
+          osc.start();
+          osc.stop(ctx.currentTime + 2.6);
+          idx++;
+        } else {
+          clearInterval(morningMelodyInterval);
+        }
+      }, 1500);
+    }
+
+    function stopMorningMelody() {
+      if (morningMelodyInterval) {
+        clearInterval(morningMelodyInterval);
+        morningMelodyInterval = null;
+      }
+    }
+
+    async function requestWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLockSentinel = await navigator.wakeLock.request('screen');
+          document.getElementById('wakeLockStatusText').textContent = 'Screen Wake Lock active: Display will stay on overnight.';
+          document.getElementById('toggleWakeLockBtn').textContent = 'Release Lock';
+          wakeLockSentinel.addEventListener('release', () => {
+            document.getElementById('wakeLockStatusText').textContent = 'Screen Wake Lock recommended for overnight alarm reliability.';
+            document.getElementById('toggleWakeLockBtn').textContent = 'Screen Stay Awake';
+          });
+        } catch (err) {
+          console.warn('Wake Lock request:', err);
+        }
+      } else {
+        document.getElementById('wakeLockStatusText').textContent = 'Screen Wake Lock unsupported on this browser.';
+        document.getElementById('toggleWakeLockBtn').classList.add('hidden');
+      }
+    }
+
+    function releaseWakeLock() {
+      if (wakeLockSentinel) {
+        wakeLockSentinel.release();
+        wakeLockSentinel = null;
+      }
+    }
+
+    function getSettings() {
+      try {
+        const s = localStorage.getItem(KEY_SETTINGS);
+        return s ? { ...defaultSettings, ...JSON.parse(s) } : { ...defaultSettings };
+      } catch (e) {
+        return { ...defaultSettings };
+      }
+    }
+
+    function saveSettings(s) {
+      localStorage.setItem(KEY_SETTINGS, JSON.stringify(s));
+      applySettings();
+    }
+
+    function getAlarms() {
+      try {
+        const a = localStorage.getItem(KEY_ALARMS);
+        if (a) return JSON.parse(a);
+      } catch (e) {}
+      return [
+        {
+          id: 'alarm_' + Date.now(),
+          hour: 6,
+          minute: 30,
+          period: 'AM',
+          label: 'Primary Morning Awakening',
+          days: [1, 2, 3, 4, 5],
+          challengeType: 'random',
+          difficulty: 'medium',
+          tone: 'siren',
+          volume: 90,
+          enabled: true
+        }
+      ];
+    }
+
+    function saveAlarms(alarms) {
+      localStorage.setItem(KEY_ALARMS, JSON.stringify(alarms));
+      renderAlarms();
+      updateNextAlarmTicker();
+    }
+
+    function getStreak() {
+      try {
+        const st = localStorage.getItem(KEY_STREAK);
+        return st ? JSON.parse(st) : { count: 3, lastDate: '' };
+      } catch (e) {
+        return { count: 0, lastDate: '' };
+      }
+    }
+
+    function incrementStreak() {
+      const data = getStreak();
+      const today = new Date().toDateString();
+      if (data.lastDate !== today) {
+        data.count += 1;
+        data.lastDate = today;
+        localStorage.setItem(KEY_STREAK, JSON.stringify(data));
+      }
+      renderStreakDisplay();
+    }
+
+    function renderStreakDisplay() {
+      const s = getStreak();
+      document.getElementById('streakDisplay').textContent = `${s.count} Day${s.count === 1 ? '' : 's'} Continuous`;
+    }
+
+    function tickClock() {
+      const now = new Date();
+      const s = getSettings();
+      let hours = now.getHours();
+      const minutes = now.getMinutes();
+      const seconds = now.getSeconds();
+
+      let timeFormatted = '';
+      if (s.use24Hour) {
+        timeFormatted = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      } else {
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12 || 12;
+        timeFormatted = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')} ${ampm}`;
+      }
+
+      document.getElementById('liveClock').textContent = timeFormatted;
+      document.getElementById('liveDate').textContent = now.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+
+      if (seconds === 0) {
+        evaluateAlarmTrigger(now);
+      }
+    }
+
+    function evaluateAlarmTrigger(now) {
+      const alarms = getAlarms();
+      const currentDay = now.getDay();
+      const currentHour = now.getHours();
+      const currentMin = now.getMinutes();
+
+      alarms.forEach(alarm => {
+        if (!alarm.enabled) return;
+
+        let aHour = parseInt(alarm.hour);
+        if (alarm.period === 'PM' && aHour < 12) aHour += 12;
+        if (alarm.period === 'AM' && aHour === 12) aHour = 0;
+
+        const dayAllowed = !alarm.days || alarm.days.length === 0 || alarm.days.includes(currentDay);
+
+        if (dayAllowed && currentHour === aHour && currentMin === parseInt(alarm.minute)) {
+          startAlarmTrigger(alarm);
+        }
+      });
+    }
+
+    function updateNextAlarmTicker() {
+      const alarms = getAlarms().filter(a => a.enabled);
+      const display = document.getElementById('nextAlarmDisplay');
+      const countdown = document.getElementById('nextAlarmCountdown');
+
+      if (alarms.length === 0) {
+        display.textContent = 'No alarms active';
+        countdown.textContent = 'Toggle an alarm ON to schedule';
+        return;
+      }
+
+      const now = new Date();
+      let smallestDiff = Infinity;
+      let targetAlarm = null;
+      let targetDate = null;
+
+      alarms.forEach(alarm => {
+        let aHour = parseInt(alarm.hour);
+        if (alarm.period === 'PM' && aHour < 12) aHour += 12;
+        if (alarm.period === 'AM' && aHour === 12) aHour = 0;
+
+        for (let d = 0; d <= 7; d++) {
+          const test = new Date(now.getFullYear(), now.getMonth(), now.getDate() + d, aHour, parseInt(alarm.minute), 0, 0);
+          if (test > now) {
+            const dayOfWeek = test.getDay();
+            if (!alarm.days || alarm.days.length === 0 || alarm.days.includes(dayOfWeek)) {
+              const diff = test - now;
+              if (diff < smallestDiff) {
+                smallestDiff = diff;
+                targetAlarm = alarm;
+                targetDate = test;
+              }
+              break;
+            }
+          }
+        }
+      });
+
+      if (targetAlarm && targetDate) {
+        const s = getSettings();
+        let h = targetAlarm.hour;
+        let p = targetAlarm.period;
+        if (s.use24Hour) {
+          let h24 = parseInt(h);
+          if (p === 'PM' && h24 < 12) h24 += 12;
+          if (p === 'AM' && h24 === 12) h24 = 0;
+          display.textContent = `${String(h24).padStart(2, '0')}:${String(targetAlarm.minute).padStart(2, '0')} (${targetAlarm.label})`;
+        } else {
+          display.textContent = `${targetAlarm.hour}:${String(targetAlarm.minute).padStart(2, '0')} ${targetAlarm.period} (${targetAlarm.label})`;
+        }
+
+        const totalHours = Math.floor(smallestDiff / (1000 * 60 * 60));
+        const totalMinutes = Math.floor((smallestDiff % (1000 * 60 * 60)) / (1000 * 60));
+        countdown.textContent = `Rings in ${totalHours}h ${totalMinutes}m (${targetDate.toLocaleDateString(undefined, { weekday: 'short' })})`;
+      }
+    }
+
+    function renderAlarms() {
+      const container = document.getElementById('alarmsList');
+      const alarms = getAlarms();
+      const s = getSettings();
+
+      if (alarms.length === 0) {
+        container.innerHTML = `
+          <div class="bg-slate-900/40 border border-dashed border-slate-800 rounded-3xl p-8 text-center text-slate-500">
+            <i data-lucide="alarm-clock-off" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i>
+            <p class="font-medium text-sm">No alarms created yet.</p>
+            <p class="text-xs text-slate-600 mt-1">Tap "+ Add Alarm" to schedule your cognitive wake-up.</p>
+          </div>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      container.innerHTML = '';
+      const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+      alarms.forEach(alarm => {
+        const item = document.createElement('div');
+        item.className = `p-4 sm:p-5 rounded-3xl border transition-all ${
+          alarm.enabled ? 'bg-slate-900/80 border-slate-800 shadow-lg' : 'bg-slate-900/30 border-slate-800/40 opacity-60'
+        } flex flex-col sm:flex-row sm:items-center justify-between gap-4`;
+
+        let timeStr = `${alarm.hour}:${String(alarm.minute).padStart(2, '0')} ${alarm.period}`;
+        if (s.use24Hour) {
+          let h24 = parseInt(alarm.hour);
+          if (alarm.period === 'PM' && h24 < 12) h24 += 12;
+          if (alarm.period === 'AM' && h24 === 12) h24 = 0;
+          timeStr = `${String(h24).padStart(2, '0')}:${String(alarm.minute).padStart(2, '0')}`;
+        }
+
+        let daysHtml = '<div class="flex space-x-1 mt-1.5">';
+        for (let i = 0; i < 7; i++) {
+          const active = alarm.days && alarm.days.includes(i);
+          daysHtml += `<span class="w-5 h-5 text-[10px] font-bold rounded-md flex items-center justify-center ${
+            active ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800/60 text-slate-500'
+          }">${dayNames[i]}</span>`;
+        }
+        daysHtml += '</div>';
+
+        const challengeLabels = {
+          random: '🎲 Dynamic',
+          math: '🧮 Math',
+          typing: '⌨️ Typing',
+          memory: '🧠 Memory',
+          sequence: '🔢 Sequence',
+          qr: '📷 QR Code'
+        };
+
+        const toneLabels = {
+          custom: '🎵 Custom Song',
+          triple_beep: '⚡ Staccato',
+          siren: '🚨 Siren',
+          harmonic: '🔔 Harmonic',
+          radar: '📡 Radar'
+        };
+
+        item.innerHTML = `
+          <div class="space-y-1">
+            <div class="flex items-baseline space-x-3">
+              <span class="text-2xl sm:text-3xl font-extrabold font-mono text-slate-100">${timeStr}</span>
+              <span class="text-xs font-semibold text-slate-300 truncate max-w-[140px] sm:max-w-xs">${alarm.label || 'Alarm'}</span>
+            </div>
+            <div class="flex items-center space-x-2 text-xs text-slate-400">
+              <span class="px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700/60 text-[11px] font-medium">${challengeLabels[alarm.challengeType] || 'Challenge'}</span>
+              <span class="text-emerald-400 font-medium">• ${toneLabels[alarm.tone] || 'Sound'}</span>
+              <span class="capitalize text-slate-500">• ${alarm.difficulty}</span>
+            </div>
+            ${daysHtml}
+          </div>
+
+          <div class="flex items-center justify-between sm:justify-end space-x-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/60">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" class="sr-only toggle-alarm-input" data-id="${alarm.id}" ${alarm.enabled ? 'checked' : ''}>
+              <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+            </label>
+            <button class="edit-alarm-btn p-2 text-slate-400 hover:text-slate-200 rounded-xl bg-slate-800/60 hover:bg-slate-800 transition" data-id="${alarm.id}">
+              <i data-lucide="edit-3" class="w-4 h-4"></i>
+            </button>
+            <button class="delete-alarm-btn p-2 text-slate-400 hover:text-rose-400 rounded-xl bg-slate-800/60 hover:bg-slate-800 transition" data-id="${alarm.id}">
+              <i data-lucide="trash" class="w-4 h-4"></i>
+            </button>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+
+      container.querySelectorAll('.toggle-alarm-input').forEach(input => {
+        input.addEventListener('change', (e) => {
+          const id = e.target.getAttribute('data-id');
+          const list = getAlarms();
+          const target = list.find(a => a.id === id);
+          if (target) {
+            target.enabled = e.target.checked;
+            saveAlarms(list);
+          }
+        });
+      });
+
+      container.querySelectorAll('.edit-alarm-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          openAlarmEditor(id);
+        });
+      });
+
+      container.querySelectorAll('.delete-alarm-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          const list = getAlarms().filter(a => a.id !== id);
+          saveAlarms(list);
+        });
+      });
+
+      lucide.createIcons();
+    }
+
+    function generateMathChallenge(difficulty) {
+      let num1, num2, op, ans;
+      if (difficulty === 'easy') {
+        num1 = Math.floor(Math.random() * 20) + 5;
+        num2 = Math.floor(Math.random() * 20) + 5;
+        op = '+';
+        ans = num1 + num2;
+      } else if (difficulty === 'hard') {
+        num1 = Math.floor(Math.random() * 12) + 6;
+        num2 = Math.floor(Math.random() * 12) + 3;
+        const num3 = Math.floor(Math.random() * 25) + 10;
+        return {
+          title: "Advanced Arithmetic",
+          prompt: `(${num1} × ${num2}) + ${num3} = ?`,
+          solution: String((num1 * num2) + num3),
+          type: 'text_input'
+        };
+      } else {
+        num1 = Math.floor(Math.random() * 45) + 15;
+        num2 = Math.floor(Math.random() * 45) + 15;
+        const isSub = Math.random() > 0.5;
+        if (isSub) {
+          return {
+            title: "Math Calculation",
+            prompt: `${num1 + num2} − ${num1} = ?`,
+            solution: String(num2),
+            type: 'text_input'
+          };
+        }
+        op = '+';
+        ans = num1 + num2;
+      }
+
+      return {
+        title: "Mental Arithmetic",
+        prompt: `${num1} ${op} ${num2} = ?`,
+        solution: String(ans),
+        type: 'text_input'
+      };
+    }
+
+    function generateTypingChallenge(difficulty) {
+      const sentences = [
+        "Today I will get up and start my day.",
+        "I am fully awake and ready for my goals.",
+        "Clear mind, deep breath, active morning.",
+        "Discipline is choosing what I want most.",
+        "Rise early and conquer the daily horizon."
+      ];
+      const pick = sentences[Math.floor(Math.random() * sentences.length)];
+      return {
+        title: "Mindful Affirmation Typing",
+        prompt: `Type the exact sentence below:`,
+        targetText: pick,
+        solution: pick.trim(),
+        type: 'typing_input'
+      };
+    }
+
+    function generateMemoryChallenge(difficulty) {
+      const length = difficulty === 'easy' ? 4 : (difficulty === 'hard' ? 6 : 5);
+      const digits = [];
+      for (let i = 0; i < length; i++) {
+        digits.push(Math.floor(Math.random() * 9) + 1);
+      }
+      return {
+        title: "Memory Sequence Recall",
+        prompt: "Memorize these digits before they vanish!",
+        sequence: digits,
+        solution: digits.join(''),
+        type: 'memory_input'
+      };
+    }
+
+    function generateSequenceChallenge(difficulty) {
+      let seq = [];
+      let nextVal = 0;
+      const type = Math.floor(Math.random() * 3);
+
+      if (type === 0) {
+        const step = Math.floor(Math.random() * 5) + 2;
+        const start = Math.floor(Math.random() * 10) + 1;
+        seq = [start, start + step, start + 2 * step, start + 3 * step];
+        nextVal = start + 4 * step;
+      } else if (type === 1) {
+        const start = Math.floor(Math.random() * 4) + 2;
+        seq = [start, start * 2, start * 4, start * 8];
+        nextVal = start * 16;
+      } else {
+        const a = Math.floor(Math.random() * 3) + 1;
+        const b = Math.floor(Math.random() * 3) + 2;
+        const c = a + b;
+        const d = b + c;
+        seq = [a, b, c, d];
+        nextVal = c + d;
+      }
+
+      return {
+        title: "Pattern Extrapolation",
+        prompt: `${seq.join(' → ')} → ?`,
+        solution: String(nextVal),
+        type: 'text_input'
+      };
+    }
+
+    function generateQrChallenge() {
+      return {
+        title: "Physical QR / Barcode Scan",
+        prompt: "Scan your bathroom or desk QR token to shut down alarm.",
+        type: 'qr_scanner'
+      };
+    }
+
+    function generateSingingChallenge() {
+      return {
+        title: "Sing to Wake Up",
+        prompt: "Allow microphone access, then sing or hum for 4 seconds. The check detects sustained sound, not specific words.",
+        type: 'singing_input'
+      };
+    }
+
+    function generatePictureChallenge() {
+      const pictures = [
+        { image: '🍎', answer: 'apple' },
+        { image: '🚲', answer: 'bicycle' },
+        { image: '🦋', answer: 'butterfly' },
+        { image: '🐘', answer: 'elephant' },
+        { image: '🌻', answer: 'sunflower' },
+        { image: '🔑', answer: 'key' },
+        { image: '⏰', answer: 'alarm clock' },
+        { image: '🍕', answer: 'pizza' }
+      ];
+      const picture = pictures[Math.floor(Math.random() * pictures.length)];
+      const options = [
+        picture,
+        ...pictures.filter(item => item.answer !== picture.answer)
+          .sort(() => Math.random() - 0.5)
+          .slice(0, 3)
+      ];
+      for (let index = options.length - 1; index > 0; index--) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [options[index], options[swapIndex]] = [options[swapIndex], options[index]];
+      }
+      return {
+        title: "Identify the Picture",
+        prompt: "Take your time. Choose the matching object; there is no timer.",
+        image: picture.image,
+        options: options.map(item => item.answer),
+        solution: picture.answer,
+        type: 'picture_input'
+      };
+    }
+
+    function startAlarmTrigger(alarm) {
+      activeAlarm = alarm;
+      playAlarmSound(alarm.tone || 'siren', alarm.volume || 90);
+
+      let cType = alarm.challengeType;
+      if (cType === 'random') {
+        const pool = ['math', 'typing', 'memory', 'sequence', 'singing', 'picture', 'qr'];
+        cType = pool[Math.floor(Math.random() * pool.length)];
+      }
+
+      if (cType === 'math') activeChallengeData = generateMathChallenge(alarm.difficulty);
+      else if (cType === 'typing') activeChallengeData = generateTypingChallenge(alarm.difficulty);
+      else if (cType === 'memory') activeChallengeData = generateMemoryChallenge(alarm.difficulty);
+      else if (cType === 'sequence') activeChallengeData = generateSequenceChallenge(alarm.difficulty);
+      else if (cType === 'singing') activeChallengeData = generateSingingChallenge();
+      else if (cType === 'picture') activeChallengeData = generatePictureChallenge();
+      else activeChallengeData = generateQrChallenge();
+
+      renderActiveChallenge(activeChallengeData);
+
+      document.body.classList.add('animate-alarm-active');
+      document.getElementById('wakeUpTakeoverView').classList.remove('hidden');
+
+      const s = getSettings();
+      const now = new Date();
+      let h = now.getHours();
+      let ampm = h >= 12 ? 'PM' : 'AM';
+      if (!s.use24Hour) h = h % 12 || 12;
+      document.getElementById('wakeUpCurrentTime').textContent = `${String(h).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${s.use24Hour ? '' : ampm}`;
+    }
+
+    function renderActiveChallenge(challenge) {
+      const area = document.getElementById('challengeWorkArea');
+      const title = document.getElementById('challengeTitle');
+      const desc = document.getElementById('challengeDescription');
+      const feedback = document.getElementById('challengeFeedback');
+      const submitBtn = document.getElementById('submitChallengeBtn');
+
+      title.textContent = challenge.title;
+      desc.textContent = challenge.prompt;
+      feedback.textContent = '';
+      area.innerHTML = '';
+      submitBtn.classList.remove('hidden');
+
+      if (challenge.type === 'text_input') {
+        area.innerHTML = `
+          <input type="text" id="challengeInput" inputmode="numeric" placeholder="Enter solution" autofocus
+            class="w-full text-center text-3xl font-mono font-bold bg-slate-950/80 border-2 border-slate-700 rounded-2xl py-3 text-slate-100 focus:outline-none focus:border-emerald-500">
+        `;
+        setTimeout(() => document.getElementById('challengeInput')?.focus(), 150);
+
+      } else if (challenge.type === 'typing_input') {
+        area.innerHTML = `
+          <div class="p-3 bg-slate-950/80 rounded-2xl border border-slate-700 text-sm font-mono text-emerald-400 font-semibold select-none">
+            "${challenge.targetText}"
+          </div>
+          <input type="text" id="challengeInput" placeholder="Type sentence here..." autocomplete="off"
+            class="w-full text-center text-sm font-mono bg-slate-950/80 border-2 border-slate-700 rounded-2xl py-3 px-3 text-slate-100 focus:outline-none focus:border-emerald-500">
+        `;
+        setTimeout(() => document.getElementById('challengeInput')?.focus(), 150);
+
+      } else if (challenge.type === 'picture_input') {
+        submitBtn.classList.add('hidden');
+        area.innerHTML = `
+          <div class="text-8xl py-4" role="img" aria-label="Picture to identify">${challenge.image}</div>
+          <div class="grid grid-cols-2 gap-3">
+            ${challenge.options.map(answer => `
+              <button type="button" data-picture-answer="${answer}" class="py-3 px-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold rounded-xl border border-slate-700 transition capitalize">
+                ${answer}
+              </button>
+            `).join('')}
+          </div>
+        `;
+        area.querySelectorAll('[data-picture-answer]').forEach(button => {
+          button.addEventListener('click', () => evaluatePictureSelection(button.dataset.pictureAnswer, button));
+        });
+
+      } else if (challenge.type === 'singing_input') {
+        submitBtn.classList.add('hidden');
+        area.innerHTML = `
+          <button id="startSingingBtn" type="button" class="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition">
+            Start singing
+          </button>
+        `;
+        document.getElementById('startSingingBtn').addEventListener('click', startSingingChallenge);
+
+      } else if (challenge.type === 'memory_input') {
+        area.innerHTML = `
+          <div id="memoryDisplay" class="flex justify-center space-x-2 py-4">
+            ${challenge.sequence.map(n => `<span class="w-12 h-14 bg-emerald-500/20 border border-emerald-500 text-emerald-300 text-2xl font-mono font-bold flex items-center justify-center rounded-xl">${n}</span>`).join('')}
+          </div>
+          <div id="memoryInputArea" class="hidden">
+            <p class="text-xs text-slate-400 mb-2 font-mono">Enter the digits in sequence:</p>
+            <input type="text" id="challengeInput" inputmode="numeric" placeholder="e.g. 5291" class="w-full text-center text-3xl font-mono font-bold bg-slate-950/80 border-2 border-slate-700 rounded-2xl py-3 text-slate-100 focus:outline-none focus:border-emerald-500">
+          </div>
+        `;
+        setTimeout(() => {
+          const disp = document.getElementById('memoryDisplay');
+          const inputWrap = document.getElementById('memoryInputArea');
+          if (disp && inputWrap) {
+            disp.classList.add('hidden');
+            inputWrap.classList.remove('hidden');
+            document.getElementById('challengeInput')?.focus();
+          }
+        }, 3200);
+
+      } else if (challenge.type === 'qr_scanner') {
+        submitBtn.classList.add('hidden');
+        area.innerHTML = `
+          <div class="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-700 flex items-center justify-center">
+            <video id="cameraVideo" class="w-full h-full object-cover" playsinline></video>
+            <canvas id="qrCanvas" class="hidden"></canvas>
+            <div class="absolute inset-0 border-2 border-dashed border-emerald-500/80 rounded-2xl pointer-events-none animate-pulse"></div>
+          </div>
+          <p class="text-[11px] text-slate-400">Position any QR code or barcode inside view.</p>
+        `;
+        startCameraScanner();
+      }
+    }
+
+    function evaluatePictureSelection(answer, button) {
+      if (!activeChallengeData) return;
+      if (answer === activeChallengeData.solution) {
+        handleChallengeSuccess();
+      } else {
+        document.getElementById('challengeFeedback').textContent = 'Not quite. Take your time and try another choice.';
+        button.disabled = true;
+        button.classList.add('border-rose-500', 'text-rose-300');
+      }
+    }
+
+    async function startSingingChallenge() {
+      const button = document.getElementById('startSingingBtn');
+      const feedback = document.getElementById('challengeFeedback');
+      if (!button || !navigator.mediaDevices?.getUserMedia) {
+        feedback.textContent = 'Microphone access is unavailable in this browser.';
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Listening... sing or hum now';
+      feedback.textContent = '';
+
+      try {
+        microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const context = getAudioContext();
+        await context.resume();
+        singingAudioSource = context.createMediaStreamSource(microphoneStream);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 1024;
+        singingAudioSource.connect(analyser);
+
+        const samples = new Uint8Array(analyser.fftSize);
+        let voicedSamples = 0;
+        let elapsed = 0;
+        singingCheckInterval = setInterval(() => {
+          analyser.getByteTimeDomainData(samples);
+          let energy = 0;
+          for (const sample of samples) {
+            const amplitude = (sample - 128) / 128;
+            energy += amplitude * amplitude;
+          }
+          if (Math.sqrt(energy / samples.length) > 0.025) voicedSamples++;
+          elapsed += 100;
+
+          if (elapsed >= 4000) {
+            stopSingingCheck();
+            if (voicedSamples >= 18) {
+              handleChallengeSuccess();
+            } else {
+              feedback.textContent = 'Not enough singing detected. Try again in a quieter place.';
+              const retryButton = document.getElementById('startSingingBtn');
+              if (retryButton) {
+                retryButton.disabled = false;
+                retryButton.textContent = 'Try again';
+              }
+            }
+          }
+        }, 100);
+      } catch (error) {
+        stopSingingCheck();
+        feedback.textContent = 'Microphone permission was denied or unavailable. Allow access and try again.';
+        button.disabled = false;
+        button.textContent = 'Try again';
+      }
+    }
+
+    function stopSingingCheck() {
+      if (singingCheckInterval) {
+        clearInterval(singingCheckInterval);
+        singingCheckInterval = null;
+      }
+      if (singingAudioSource) {
+        singingAudioSource.disconnect();
+        singingAudioSource = null;
+      }
+      if (microphoneStream) {
+        microphoneStream.getTracks().forEach(track => track.stop());
+        microphoneStream = null;
+      }
+    }
+
+    function startCameraScanner() {
+      const video = document.getElementById('cameraVideo');
+      const canvas = document.getElementById('qrCanvas');
+      if (!video || !canvas) return;
+
+      navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+          cameraStream = stream;
+          video.srcObject = stream;
+          video.setAttribute('playsinline', true);
+          video.play();
+
+          videoScannerInterval = setInterval(() => {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+              const ctx = canvas.getContext('2d');
+              canvas.height = video.videoHeight;
+              canvas.width = video.videoWidth;
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              
+              if (window.jsQR) {
+                const code = jsQR(imgData.data, imgData.width, imgData.height, {
+                  inversionAttempts: "dontInvert"
+                });
+                if (code && code.data) {
+                  stopCameraScanner();
+                  handleChallengeSuccess();
+                }
+              }
+            }
+          }, 300);
+        })
+        .catch(err => {
+          console.warn('Camera access error:', err);
+          document.getElementById('challengeFeedback').textContent = 'Camera unavailable. Switching to mental arithmetic.';
+          setTimeout(() => {
+            activeChallengeData = generateMathChallenge('medium');
+            renderActiveChallenge(activeChallengeData);
+          }, 1400);
+        });
+    }
+
+    function stopCameraScanner() {
+      if (videoScannerInterval) {
+        clearInterval(videoScannerInterval);
+        videoScannerInterval = null;
+      }
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(t => t.stop());
+        cameraStream = null;
+      }
+    }
+
+    function evaluateChallengeSubmission() {
+      const input = document.getElementById('challengeInput');
+      const feedback = document.getElementById('challengeFeedback');
+      if (!input || !activeChallengeData) return;
+
+      const userVal = input.value.trim();
+
+      if (userVal.toLowerCase() === activeChallengeData.solution.toLowerCase()) {
+        handleChallengeSuccess();
+      } else {
+        feedback.textContent = 'Incorrect solution. Try again!';
+        input.value = '';
+        input.classList.add('border-rose-500');
+        setTimeout(() => input.classList.remove('border-rose-500'), 800);
+      }
+    }
+
+    function handleChallengeSuccess() {
+      stopAudioPlayback();
+      stopCameraScanner();
+      stopSingingCheck();
+      document.body.classList.remove('animate-alarm-active');
+      document.getElementById('wakeUpTakeoverView').classList.add('hidden');
+
+      incrementStreak();
+      openMorningPortal();
+    }
+
+    function openMorningPortal() {
+      const s = getSettings();
+      const modal = document.getElementById('morningPortalView');
+      document.getElementById('morningGreeting').textContent = `Good Morning, ${s.userName || 'Explorer'}! 🌅`;
+
+      const now = new Date();
+      document.getElementById('morningDateBanner').textContent = now.toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric'
+      }) + " • You are in control of today.";
+
+      const verse = motivationalVerses[Math.floor(Math.random() * motivationalVerses.length)];
+      document.getElementById('morningVerseText').textContent = `"${verse.text}"`;
+      document.getElementById('morningVerseAuthor').textContent = `— ${verse.author}`;
+
+      startBreathingAnimation();
+      playMorningMelody();
+      document.getElementById('morningPlayText').textContent = 'Pause Ambient Melody';
+
+      modal.classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function startBreathingAnimation() {
+      const textEl = document.getElementById('breathingPacerText');
+      let step = 0;
+      const phases = [
+        "Inhale deeply through your nose... (4s)",
+        "Hold gently and stay still... (4s)",
+        "Exhale completely and release... (4s)",
+        "Rest empty and center yourself... (4s)"
+      ];
+
+      setInterval(() => {
+        if (!document.getElementById('morningPortalView').classList.contains('hidden')) {
+          step = (step + 1) % phases.length;
+          textEl.textContent = phases[step];
+        }
+      }, 4000);
+    }
+
+    function openAlarmEditor(alarmId = null) {
+      const form = document.getElementById('alarmForm');
+      const title = document.getElementById('modalTitle');
+      form.reset();
+
+      document.querySelectorAll('.day-btn').forEach(b => {
+        b.classList.remove('bg-emerald-500', 'text-slate-950');
+        b.classList.add('bg-slate-800', 'text-slate-400');
+      });
+
+      if (alarmId) {
+        const list = getAlarms();
+        const alarm = list.find(a => a.id === alarmId);
+        if (alarm) {
+          title.textContent = 'Edit Alarm';
+          document.getElementById('alarmId').value = alarm.id;
+          document.getElementById('alarmHour').value = alarm.hour;
+          document.getElementById('alarmMinute').value = String(alarm.minute).padStart(2, '0');
+          document.getElementById('toggleAmPmBtn').textContent = alarm.period;
+          document.getElementById('alarmLabel').value = alarm.label || '';
+          document.getElementById('alarmChallengeType').value = alarm.challengeType || 'random';
+          document.getElementById('alarmDifficulty').value = alarm.difficulty || 'medium';
+          document.getElementById('alarmToneType').value = (alarm.tone === 'custom' && !customAudioBlobCache) ? 'siren' : (alarm.tone || 'siren');
+          document.getElementById('alarmVolume').value = Math.max(65, alarm.volume || 90);
+          document.getElementById('volumePercentage').textContent = `${Math.max(65, alarm.volume || 90)}%`;
+
+          if (alarm.days) {
+            alarm.days.forEach(d => {
+              const btn = document.querySelector(`.day-btn[data-day="${d}"]`);
+              if (btn) {
+                btn.classList.add('bg-emerald-500', 'text-slate-950');
+                btn.classList.remove('bg-slate-800', 'text-slate-400');
+              }
+            });
+          }
+        }
+      } else {
+        title.textContent = 'Create New Alarm';
+        document.getElementById('alarmId').value = '';
+        document.getElementById('alarmHour').value = '06';
+        document.getElementById('alarmMinute').value = '30';
+        document.getElementById('toggleAmPmBtn').textContent = 'AM';
+        document.getElementById('alarmVolume').value = 90;
+        document.getElementById('volumePercentage').textContent = '90%';
+        [1, 2, 3, 4, 5].forEach(d => {
+          const btn = document.querySelector(`.day-btn[data-day="${d}"]`);
+          if (btn) {
+            btn.classList.add('bg-emerald-500', 'text-slate-950');
+            btn.classList.remove('bg-slate-800', 'text-slate-400');
+          }
+        });
+      }
+
+      document.getElementById('alarmModal').classList.remove('hidden');
+    }
+
+    function applySettings() {
+      const s = getSettings();
+      document.getElementById('greetingText').textContent = `Good Morning, ${s.userName || 'Explorer'} 🌅`;
+      document.getElementById('settingUserName').value = s.userName;
+      document.getElementById('setting24h').checked = s.use24Hour;
+      document.getElementById('settingWakeLock').checked = s.keepAwake;
+
+      if (s.keepAwake) requestWakeLock();
+      else releaseWakeLock();
+
+      renderAlarms();
+      updateNextAlarmTicker();
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      registerPWA();
+      await initDatabase();
+      applySettings();
+      renderStreakDisplay();
+      renderAlarms();
+      updateNextAlarmTicker();
+
+      setInterval(tickClock, 1000);
+      tickClock();
+      lucide.createIcons();
+
+      // Audio unlock on user touch/click
+      const unlockAudio = () => {
+        getAudioContext();
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('touchstart', unlockAudio);
+      };
+      window.addEventListener('click', unlockAudio);
+      window.addEventListener('touchstart', unlockAudio);
+
+      // Custom song upload handler
+      document.getElementById('customAudioUploadInput').addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          saveCustomSongFile(e.target.files[0]);
+        }
+      });
+
+      // Preview custom song button
+      let isPreviewingSong = false;
+      document.getElementById('previewCustomSongBtn').addEventListener('click', () => {
+        const text = document.getElementById('previewCustomSongText');
+        if (!isPreviewingSong) {
+          playAlarmSound('custom', 90);
+          text.textContent = 'Stop';
+          isPreviewingSong = true;
+        } else {
+          stopAudioPlayback();
+          text.textContent = 'Test Song';
+          isPreviewingSong = false;
+        }
+      });
+
+      // Delete custom song
+      document.getElementById('deleteCustomSongBtn').addEventListener('click', () => {
+        deleteCustomSongFile();
+      });
+
+      // Modal tone preview test button
+      let isTestingModalTone = false;
+      document.getElementById('previewModalToneBtn').addEventListener('click', () => {
+        const btn = document.getElementById('previewModalToneBtn');
+        const tone = document.getElementById('alarmToneType').value;
+        const vol = parseInt(document.getElementById('alarmVolume').value);
+
+        if (!isTestingModalTone) {
+          playAlarmSound(tone, vol);
+          btn.innerHTML = `<i data-lucide="square" class="w-3.5 h-3.5"></i><span>Stop</span>`;
+          isTestingModalTone = true;
+        } else {
+          stopAudioPlayback();
+          btn.innerHTML = `<i data-lucide="play" class="w-3.5 h-3.5"></i><span>Test</span>`;
+          isTestingModalTone = false;
+        }
+        lucide.createIcons();
+      });
+
+      // Add alarm button
+      document.getElementById('openAddAlarmBtn').addEventListener('click', () => openAlarmEditor());
+      document.getElementById('closeModalBtn').addEventListener('click', () => {
+        stopAudioPlayback();
+        document.getElementById('alarmModal').classList.add('hidden');
+      });
+      document.getElementById('cancelAlarmBtn').addEventListener('click', () => {
+        stopAudioPlayback();
+        document.getElementById('alarmModal').classList.add('hidden');
+      });
+
+      // AM/PM Toggle
+      document.getElementById('toggleAmPmBtn').addEventListener('click', (e) => {
+        e.target.textContent = e.target.textContent === 'AM' ? 'PM' : 'AM';
+      });
+
+      // Repeat Day buttons
+      document.querySelectorAll('.day-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.currentTarget.classList.toggle('bg-emerald-500');
+          e.currentTarget.classList.toggle('text-slate-950');
+          e.currentTarget.classList.toggle('bg-slate-800');
+          e.currentTarget.classList.toggle('text-slate-400');
+        });
+      });
+
+      // Volume clamped range slider
+      document.getElementById('alarmVolume').addEventListener('input', (e) => {
+        document.getElementById('volumePercentage').textContent = `${e.target.value}%`;
+      });
+
+      // Save alarm form
+      document.getElementById('alarmForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        stopAudioPlayback();
+        const id = document.getElementById('alarmId').value || 'alarm_' + Date.now();
+        const hour = parseInt(document.getElementById('alarmHour').value);
+        const minute = parseInt(document.getElementById('alarmMinute').value);
+        const period = document.getElementById('toggleAmPmBtn').textContent;
+        const label = document.getElementById('alarmLabel').value.trim() || 'Wake-Up Call';
+        const challengeType = document.getElementById('alarmChallengeType').value;
+        const difficulty = document.getElementById('alarmDifficulty').value;
+        const tone = document.getElementById('alarmToneType').value;
+        const volume = Math.max(65, parseInt(document.getElementById('alarmVolume').value));
+
+        const days = [];
+        document.querySelectorAll('.day-btn').forEach(b => {
+          if (b.classList.contains('bg-emerald-500')) {
+            days.push(parseInt(b.getAttribute('data-day')));
+          }
+        });
+
+        const alarms = getAlarms();
+        const existingIdx = alarms.findIndex(a => a.id === id);
+        const alarmObj = { id, hour, minute, period, label, days, challengeType, difficulty, tone, volume, enabled: true };
+
+        if (existingIdx >= 0) alarms[existingIdx] = alarmObj;
+        else alarms.push(alarmObj);
+
+        saveAlarms(alarms);
+        document.getElementById('alarmModal').classList.add('hidden');
+      });
+
+      // Emergency 10s stop button
+      const emerBtn = document.getElementById('emergencyStopBtn');
+      const progressWrap = document.getElementById('emergencyProgressWrap');
+      const progressBar = document.getElementById('emergencyProgressBar');
+
+      const startHold = () => {
+        emergencyStartTime = Date.now();
+        progressWrap.classList.remove('hidden');
+        progressBar.style.width = '0%';
+
+        emergencyTimer = setInterval(() => {
+          const elapsed = Date.now() - emergencyStartTime;
+          const pct = Math.min(100, (elapsed / 10000) * 100);
+          progressBar.style.width = `${pct}%`;
+          if (elapsed >= 10000) {
+            clearInterval(emergencyTimer);
+            handleChallengeSuccess();
+          }
+        }, 100);
+      };
+
+      const cancelHold = () => {
+        if (emergencyTimer) {
+          clearInterval(emergencyTimer);
+          emergencyTimer = null;
+        }
+        progressWrap.classList.add('hidden');
+        progressBar.style.width = '0%';
+      };
+
+      emerBtn.addEventListener('mousedown', startHold);
+      emerBtn.addEventListener('mouseup', cancelHold);
+      emerBtn.addEventListener('mouseleave', cancelHold);
+      emerBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startHold(); });
+      emerBtn.addEventListener('touchend', cancelHold);
+
+      // Challenge submission
+      document.getElementById('submitChallengeBtn').addEventListener('click', evaluateChallengeSubmission);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !document.getElementById('wakeUpTakeoverView').classList.contains('hidden')) {
+          evaluateChallengeSubmission();
+        }
+      });
+
+      // Morning Routine Finish
+      document.getElementById('finishMorningRoutineBtn').addEventListener('click', () => {
+        stopMorningMelody();
+        document.getElementById('morningPortalView').classList.add('hidden');
+      });
+
+      // Toggle morning melody
+      document.getElementById('toggleMorningAudioBtn').addEventListener('click', () => {
+        const text = document.getElementById('morningPlayText');
+        if (morningMelodyInterval) {
+          stopMorningMelody();
+          text.textContent = 'Play Relaxing Melody';
+        } else {
+          playMorningMelody();
+          text.textContent = 'Pause Ambient Melody';
+        }
+      });
+
+      // Wake lock toggle
+      document.getElementById('toggleWakeLockBtn').addEventListener('click', () => {
+        if (wakeLockSentinel) releaseWakeLock();
+        else requestWakeLock();
+      });
+
+      // Quick test alarm
+      document.getElementById('quickTestAlarmBtn').addEventListener('click', () => {
+        const currentTone = customAudioBlobCache ? 'custom' : 'siren';
+        const sampleAlarm = {
+          id: 'test_demo',
+          hour: 6,
+          minute: 30,
+          period: 'AM',
+          label: 'Immediate Test Alarm',
+          challengeType: 'random',
+          difficulty: 'medium',
+          tone: currentTone,
+          volume: 90,
+          enabled: true
+        };
+        startAlarmTrigger(sampleAlarm);
+      });
+
+      // Settings modal handlers
+      document.getElementById('settingsBtn').addEventListener('click', () => {
+        document.getElementById('settingsModal').classList.remove('hidden');
+      });
+      document.getElementById('closeSettingsBtn').addEventListener('click', () => {
+        document.getElementById('settingsModal').classList.add('hidden');
+      });
+      document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+        const userName = document.getElementById('settingUserName').value.trim() || 'Explorer';
+        const use24Hour = document.getElementById('setting24h').checked;
+        const keepAwake = document.getElementById('settingWakeLock').checked;
+        saveSettings({ userName, use24Hour, keepAwake });
+        document.getElementById('settingsModal').classList.add('hidden');
+      });
+      document.getElementById('resetAllDataBtn').addEventListener('click', () => {
+        localStorage.removeItem(KEY_ALARMS);
+        localStorage.removeItem(KEY_STREAK);
+        location.reload();
+      });
+
+      // Guide modal handlers
+      document.getElementById('guideBtn').addEventListener('click', () => {
+        document.getElementById('guideModal').classList.remove('hidden');
+      });
+      document.getElementById('closeGuideBtn').addEventListener('click', () => {
+        document.getElementById('guideModal').classList.add('hidden');
+      });
+      document.getElementById('dismissGuideBtn').addEventListener('click', () => {
+        document.getElementById('guideModal').classList.add('hidden');
+      });
+
+      // QR Modal handlers
+      document.getElementById('generateQrBtn').addEventListener('click', () => {
+        document.getElementById('qrModal').classList.remove('hidden');
+      });
+      document.getElementById('closeQrBtn').addEventListener('click', () => {
+        document.getElementById('qrModal').classList.add('hidden');
+      });
+    });
+  </script>
+</body>
+</html>
